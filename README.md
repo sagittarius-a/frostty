@@ -85,6 +85,8 @@ Use the Frostty build wrapper:
 By default, it is using an alternative icon so it is easy to distinguish Frostty
 from Ghostty in Dock and application switcher.
 
+![Switcher preview](frostty/task-switcher.png)
+
 Build and packaging details are documented in [frostty/README.md](frostty/README.md).
 
 ## Limitations
