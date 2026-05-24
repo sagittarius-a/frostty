@@ -8,6 +8,7 @@ const cli = @import("../cli.zig");
 /// Location of possible themes. The order of this enum matters because it
 /// defines the priority of theme search (from top to bottom).
 pub const Location = enum {
+    frostty_user, // Frostty XDG config dir
     user, // XDG config dir
     resources, // Ghostty resources dir
 
@@ -25,6 +26,30 @@ pub const Location = enum {
         arena_alloc: Allocator,
     ) error{OutOfMemory}!?[]const u8 {
         return switch (self) {
+            .frostty_user => frostty: {
+                if (!isFrosttyRuntime(arena_alloc)) break :frostty null;
+
+                const subdir = std.fs.path.join(arena_alloc, &.{
+                    "frostty", "themes",
+                }) catch return error.OutOfMemory;
+
+                break :frostty internal_os.xdg.config(
+                    arena_alloc,
+                    .{ .subdir = subdir },
+                ) catch |err| {
+                    const Error = @TypeOf(err) || switch (builtin.os.tag) {
+                        .ios => error{BufferTooSmall},
+                        else => error{},
+                    };
+
+                    switch (@as(Error, err)) {
+                        error.OutOfMemory => return error.OutOfMemory,
+                        error.BufferTooSmall => return error.OutOfMemory,
+                        else => return null,
+                    }
+                };
+            },
+
             .user => user: {
                 const subdir = std.fs.path.join(arena_alloc, &.{
                     "ghostty", "themes",
@@ -61,6 +86,13 @@ pub const Location = enum {
         };
     }
 };
+
+fn isFrosttyRuntime(alloc: Allocator) bool {
+    if (comptime builtin.os.tag != .macos) return false;
+
+    const exe_path = std.fs.selfExePathAlloc(alloc) catch return false;
+    return std.mem.indexOf(u8, exe_path, "/Frostty.app/") != null;
+}
 
 /// An iterator that returns all possible directories for finding themes in
 /// order of priority.

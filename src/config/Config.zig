@@ -1130,6 +1130,18 @@ palette: Palette = .{},
 @"search-selected-foreground": TerminalColor = .{ .color = .{ .r = 0, .g = 0, .b = 0 } },
 @"search-selected-background": TerminalColor = .{ .color = .{ .r = 0xF2, .g = 0xA5, .b = 0x7E } },
 
+/// Persistently highlight visible terminal output with pattern rules.
+///
+/// This is a render overlay only: it does not change scrollback, ANSI output,
+/// copy behavior, or application-visible terminal state.
+///
+/// The MVP supports `type=token` and `type=line` regex rules with optional
+/// `fg`, `bg`, and `priority` fields. Examples:
+///
+///     highlight = name=errno type=token regex="\b(EINVAL|ENOMEM|EFAULT|EPERM)\b" fg="#ff5f5f" priority=60
+///     highlight = name=crash type=line regex="\b(SIGSEGV|SIGBUS|panic)\b" bg="#870000" fg="#ffffff" priority=90
+highlight: RepeatablePatternHighlight = .{},
+
 /// The command to run, usually a shell. If this is not an absolute path, it'll
 /// be looked up in the `PATH`. If this is not set, a default will be looked up
 /// from your system. The rules for the default lookup are:
@@ -4030,6 +4042,20 @@ fn writeConfigTemplate(path: []const u8) !void {
 /// The legacy `config` file (without extension) is first loaded,
 /// then `config.ghostty`.
 pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
+    if (try internal_os.getenv(alloc, "FROSTTY_CONFIG_FILE")) |env_path| {
+        defer env_path.deinit(alloc);
+
+        const path = env_path.value;
+        if (path.len == 0) return;
+        _ = self.loadFrosttyFile(alloc, path);
+        return;
+    }
+
+    if (try isFrosttyRuntime(alloc)) {
+        try self.loadFrosttyDefaultFiles(alloc);
+        return;
+    }
+
     // Load XDG first
     const legacy_xdg_path = try file_load.legacyDefaultXdgPath(alloc);
     defer alloc.free(legacy_xdg_path);
@@ -4099,6 +4125,48 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
             };
         }
     }
+}
+
+fn loadFrosttyDefaultFiles(
+    self: *Config,
+    alloc: Allocator,
+) !void {
+    const config_path = try file_load.frosttyConfigPath(alloc);
+    defer alloc.free(config_path);
+    const patterns_path = try file_load.frosttyPatternsPath(alloc);
+    defer alloc.free(patterns_path);
+
+    const config_action = self.loadFrosttyFile(alloc, config_path);
+    const patterns_action = self.loadFrosttyFile(alloc, patterns_path);
+
+    if (config_action == .not_found and patterns_action == .not_found) {
+        writeConfigTemplate(config_path) catch |err| {
+            log.warn(
+                "error creating Frostty config file err={} path={s}",
+                .{ err, config_path },
+            );
+        };
+    }
+}
+
+fn loadFrosttyFile(
+    self: *Config,
+    alloc: Allocator,
+    path: []const u8,
+) OptionalFileAction {
+    return self.loadOptionalFile(alloc, path);
+}
+
+fn isFrosttyRuntime(alloc: Allocator) !bool {
+    if (comptime builtin.os.tag != .macos) return false;
+
+    const exe_path = std.fs.selfExePathAlloc(alloc) catch |err| switch (err) {
+        error.OutOfMemory => return err,
+        else => return false,
+    };
+    defer alloc.free(exe_path);
+
+    return std.mem.indexOf(u8, exe_path, "/Frostty.app/") != null;
 }
 
 /// Load and parse the CLI args.
@@ -6139,6 +6207,296 @@ pub const RepeatableString = struct {
         try list.parseCLI(alloc, "B");
         try list.formatEntry(formatterpkg.entryFormatter("a", &buf.writer));
         try std.testing.expectEqualSlices(u8, "a = A\na = B\n", buf.written());
+    }
+};
+
+pub const PatternHighlightKind = enum {
+    token,
+    line,
+};
+
+pub const PatternHighlightRule = struct {
+    name: [:0]const u8,
+    kind: PatternHighlightKind,
+    regex: [:0]const u8,
+    fg: ?Color = null,
+    bg: ?Color = null,
+    priority: u16 = 0,
+    enabled: bool = true,
+
+    pub fn clone(self: PatternHighlightRule, alloc: Allocator) Allocator.Error!PatternHighlightRule {
+        const name = try alloc.dupeZ(u8, self.name);
+        errdefer alloc.free(name);
+        const regex = try alloc.dupeZ(u8, self.regex);
+        return .{
+            .name = name,
+            .kind = self.kind,
+            .regex = regex,
+            .fg = self.fg,
+            .bg = self.bg,
+            .priority = self.priority,
+            .enabled = self.enabled,
+        };
+    }
+
+    pub fn deinit(self: PatternHighlightRule, alloc: Allocator) void {
+        alloc.free(self.name);
+        alloc.free(self.regex);
+    }
+
+    pub fn equal(self: PatternHighlightRule, other: PatternHighlightRule) bool {
+        return std.mem.eql(u8, self.name, other.name) and
+            self.kind == other.kind and
+            std.mem.eql(u8, self.regex, other.regex) and
+            deepEqual(?Color, self.fg, other.fg) and
+            deepEqual(?Color, self.bg, other.bg) and
+            self.priority == other.priority and
+            self.enabled == other.enabled;
+    }
+};
+
+/// RepeatablePatternHighlight is a list of persistent render-overlay highlight rules.
+pub const RepeatablePatternHighlight = struct {
+    const Self = @This();
+    const highlight_whitespace = " \t";
+
+    rules: std.ArrayListUnmanaged(PatternHighlightRule) = .{},
+
+    pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+        const input = input_ orelse return error.ValueRequired;
+        const trimmed = std.mem.trim(u8, input, highlight_whitespace);
+
+        if (trimmed.len == 0 or std.mem.eql(u8, trimmed, "clear")) {
+            self.rules.clearRetainingCapacity();
+            return;
+        }
+
+        var parsed = ParsedPatternHighlight{};
+        errdefer parsed.deinit(alloc);
+        var iter: HighlightKvIterator = .{ .input = trimmed };
+        while (try iter.next(alloc)) |kv| {
+            defer alloc.free(kv.key);
+            defer alloc.free(kv.value);
+
+            if (std.mem.eql(u8, kv.key, "name")) {
+                parsed.name = try replaceOwned(alloc, parsed.name, kv.value);
+            } else if (std.mem.eql(u8, kv.key, "type")) {
+                parsed.kind = std.meta.stringToEnum(PatternHighlightKind, kv.value) orelse
+                    return error.InvalidValue;
+            } else if (std.mem.eql(u8, kv.key, "regex")) {
+                parsed.regex = try replaceOwned(alloc, parsed.regex, kv.value);
+            } else if (std.mem.eql(u8, kv.key, "fg")) {
+                parsed.fg = try Color.parseCLI(kv.value);
+            } else if (std.mem.eql(u8, kv.key, "bg")) {
+                parsed.bg = try Color.parseCLI(kv.value);
+            } else if (std.mem.eql(u8, kv.key, "priority")) {
+                parsed.priority = try std.fmt.parseUnsigned(u16, kv.value, 10);
+            } else if (std.mem.eql(u8, kv.key, "enabled")) {
+                parsed.enabled = try cli.args.parseBool(kv.value);
+            } else {
+                return error.InvalidValue;
+            }
+        }
+
+        const name = parsed.name orelse return error.InvalidValue;
+        const kind = parsed.kind orelse return error.InvalidValue;
+        const regex = parsed.regex orelse return error.InvalidValue;
+
+        try self.rules.append(alloc, .{
+            .name = name,
+            .kind = kind,
+            .regex = regex,
+            .fg = parsed.fg,
+            .bg = parsed.bg,
+            .priority = parsed.priority,
+            .enabled = parsed.enabled,
+        });
+    }
+
+    pub fn clone(self: *const Self, alloc: Allocator) Allocator.Error!Self {
+        var rules = try std.ArrayListUnmanaged(PatternHighlightRule).initCapacity(
+            alloc,
+            self.rules.items.len,
+        );
+        errdefer {
+            for (rules.items) |rule| rule.deinit(alloc);
+            rules.deinit(alloc);
+        }
+
+        for (self.rules.items) |rule| {
+            rules.appendAssumeCapacity(try rule.clone(alloc));
+        }
+
+        return .{ .rules = rules };
+    }
+
+    pub fn equal(self: Self, other: Self) bool {
+        if (self.rules.items.len != other.rules.items.len) return false;
+        for (self.rules.items, other.rules.items) |a, b| {
+            if (!a.equal(b)) return false;
+        }
+        return true;
+    }
+
+    pub fn formatEntry(self: Self, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.rules.items.len == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        for (self.rules.items) |rule| {
+            var buf: [4096]u8 = undefined;
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            try writer.print("name={s} type={t} regex=\"", .{
+                rule.name,
+                rule.kind,
+            });
+            try writeQuotedRaw(&writer, rule.regex);
+            try writer.writeByte('"');
+            if (rule.fg) |fg| {
+                var color_buf: [16]u8 = undefined;
+                try writer.print(" fg=\"{s}\"", .{try fg.formatBuf(&color_buf)});
+            }
+            if (rule.bg) |bg| {
+                var color_buf: [16]u8 = undefined;
+                try writer.print(" bg=\"{s}\"", .{try bg.formatBuf(&color_buf)});
+            }
+            if (rule.priority != 0) try writer.print(" priority={d}", .{rule.priority});
+            if (!rule.enabled) try writer.writeAll(" enabled=false");
+
+            try formatter.formatEntry([]const u8, writer.buffered());
+        }
+    }
+
+    const ParsedPatternHighlight = struct {
+        name: ?[:0]const u8 = null,
+        kind: ?PatternHighlightKind = null,
+        regex: ?[:0]const u8 = null,
+        fg: ?Color = null,
+        bg: ?Color = null,
+        priority: u16 = 0,
+        enabled: bool = true,
+
+        fn deinit(self: *ParsedPatternHighlight, alloc: Allocator) void {
+            if (self.name) |v| alloc.free(v);
+            if (self.regex) |v| alloc.free(v);
+            self.* = .{};
+        }
+    };
+
+    const HighlightKv = struct {
+        key: []const u8,
+        value: []const u8,
+    };
+
+    const HighlightKvIterator = struct {
+        input: []const u8,
+        i: usize = 0,
+
+        fn next(self: *HighlightKvIterator, alloc: Allocator) !?HighlightKv {
+            while (self.i < self.input.len and
+                (std.ascii.isWhitespace(self.input[self.i]) or self.input[self.i] == ','))
+            {
+                self.i += 1;
+            }
+            if (self.i >= self.input.len) return null;
+
+            const key_start = self.i;
+            while (self.i < self.input.len and self.input[self.i] != '=') {
+                if (std.ascii.isWhitespace(self.input[self.i])) return error.InvalidValue;
+                self.i += 1;
+            }
+            if (self.i >= self.input.len or self.input[self.i] != '=') return error.InvalidValue;
+            const key = std.mem.trim(u8, self.input[key_start..self.i], highlight_whitespace);
+            self.i += 1;
+            if (key.len == 0) return error.InvalidValue;
+
+            const value = if (self.i < self.input.len and self.input[self.i] == '"')
+                try self.readQuoted(alloc)
+            else
+                try self.readBare(alloc);
+            errdefer alloc.free(value);
+
+            return .{
+                .key = try alloc.dupe(u8, key),
+                .value = value,
+            };
+        }
+
+        fn readBare(self: *HighlightKvIterator, alloc: Allocator) ![]const u8 {
+            const start = self.i;
+            while (self.i < self.input.len and
+                !std.ascii.isWhitespace(self.input[self.i]) and
+                self.input[self.i] != ',')
+            {
+                self.i += 1;
+            }
+            if (self.i == start) return error.ValueRequired;
+            return try alloc.dupe(u8, self.input[start..self.i]);
+        }
+
+        fn readQuoted(self: *HighlightKvIterator, alloc: Allocator) ![]const u8 {
+            self.i += 1;
+            var out: std.ArrayListUnmanaged(u8) = .{};
+            errdefer out.deinit(alloc);
+
+            while (self.i < self.input.len) : (self.i += 1) {
+                const ch = self.input[self.i];
+                if (ch == '"') {
+                    self.i += 1;
+                    return try out.toOwnedSlice(alloc);
+                }
+
+                if (ch == '\\' and self.i + 1 < self.input.len and self.input[self.i + 1] == '"') {
+                    try out.append(alloc, '"');
+                    self.i += 1;
+                    continue;
+                }
+
+                try out.append(alloc, ch);
+            }
+
+            return error.InvalidValue;
+        }
+    };
+
+    fn replaceOwned(
+        alloc: Allocator,
+        old: ?[:0]const u8,
+        new_value: []const u8,
+    ) Allocator.Error![:0]const u8 {
+        const copy = try alloc.dupeZ(u8, new_value);
+        if (old) |v| alloc.free(v);
+        return copy;
+    }
+
+    fn writeQuotedRaw(writer: *std.Io.Writer, value: []const u8) !void {
+        for (value) |ch| {
+            if (ch == '"') try writer.writeByte('\\');
+            try writer.writeByte(ch);
+        }
+    }
+
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var highlights: Self = .{};
+        try highlights.parseCLI(
+            alloc,
+            "name=crash type=line regex=\"\\b(SIGSEGV|panic)\\b\" bg=\"#870000\" fg=\"#ffffff\" priority=90",
+        );
+        try testing.expectEqual(@as(usize, 1), highlights.rules.items.len);
+        try testing.expectEqual(PatternHighlightKind.line, highlights.rules.items[0].kind);
+        try testing.expectEqualStrings("\\b(SIGSEGV|panic)\\b", highlights.rules.items[0].regex);
+        try testing.expectEqual(@as(u16, 90), highlights.rules.items[0].priority);
+        try testing.expectEqual(Color{ .r = 0x87, .g = 0, .b = 0 }, highlights.rules.items[0].bg.?);
+
+        try highlights.parseCLI(alloc, "clear");
+        try testing.expectEqual(@as(usize, 0), highlights.rules.items.len);
     }
 };
 

@@ -1,0 +1,13 @@
+# Frostty kernel pointer/crash demo rules.
+
+highlight = name=kernel-oops type=line regex="\b(BUG:|Oops:|Kernel panic|Unable to handle kernel|general protection fault|page fault|NULL pointer dereference|use-after-free|slab-out-of-bounds)\b" fg="#ffffff" bg="#7f1d1d" priority=1100
+highlight = name=kasan-line type=line regex="\b(KASAN|KCSAN|KFENCE|UBSAN):\b" fg="#ffffff" bg="#6d1f4f" priority=1050
+highlight = name=kernel-call-trace type=line regex="\b(Call Trace:|RIP:|RSP:|RBP:|CR2:|Code:)\b" fg="#ffdf5d" bg="#3d2d00" priority=800
+highlight = name=kernel-pointer type=token regex="\b(?:0x)?ffff[0-9A-Fa-f]{12,16}\b" fg="#50fa7b" bg="#12351f" priority=1000
+highlight = name=kernel-poison type=token regex="\b(?:0x)?(?:deadbeef|deadc0de|feedface|badc0ffe|5a5a5a5a|6b6b6b6b|a5a5a5a5)\b" fg="#ff5555" bg="#3f1111" priority=1000
+highlight = name=kernel-symbol type=token regex="\b[A-Za-z_][A-Za-z0-9_]*\+[0-9A-Fa-fx]+/[0-9A-Fa-fx]+\b" fg="#8be9fd" bg="#073642" priority=850
+highlight = name=kernel-module type=token regex="\b(?:Modules linked in:|Tainted:|Comm:|CPU:|PID:)\b" fg="#bd93f9" bg="#26173f" priority=650
+highlight = name=kernel-register type=token regex="\b(?:RIP|RSP|RBP|RAX|RBX|RCX|RDX|RSI|RDI|R8|R9|R10|R11|R12|R13|R14|R15|CR2):\s*0x?[0-9A-Fa-f]+\b" fg="#f1fa8c" bg="#3d2d00" priority=750
+highlight = name=cve type=token regex="\bCVE-[0-9]{4}-[0-9]{4,7}\b" fg="#ffdf5d" bg="#3d2d00" priority=950
+highlight = name=sha256 type=token regex="\b[A-Fa-f0-9]{64}\b" fg="#50fa7b" bg="#12351f" priority=900
+highlight = name=ipv4 type=token regex="\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b" fg="#8be9fd" bg="#073642" priority=700

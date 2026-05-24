@@ -205,6 +205,12 @@ pub const RenderState = struct {
 
         /// The x ranges of highlights within this row.
         range: [2]size.CellCountInt,
+
+        /// Optional foreground color override for renderer overlays.
+        fg: ?color.RGB = null,
+
+        /// Optional background color override for renderer overlays.
+        bg: ?color.RGB = null,
     };
 
     pub const Cell = struct {

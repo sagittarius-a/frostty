@@ -1,0 +1,38 @@
+[  1337.424242] BUG: kernel NULL pointer dereference, address: 0000000000000010
+[  1337.424246] #PF: supervisor read access in kernel mode
+[  1337.424250] #PF: error_code(0x0000) - not-present page
+[  1337.424255] PGD 0 P4D 0
+[  1337.424260] Oops: 0000 [#1] PREEMPT SMP NOPTI
+[  1337.424266] CPU: 7 PID: 4242 Comm: exploit-poc Tainted: G    B             6.8.0-frostty #1
+[  1337.424273] RIP: 0010:cred_commit+0x31/0xa0
+[  1337.424279] Code: 48 8b 47 10 48 85 c0 74 2a 48 8b 50 08 48 89 df e8 91 02 00 00
+[  1337.424286] RSP: 0018:ffffc90004d33d88 EFLAGS: 00010246
+[  1337.424291] RAX: 0000000000000000 RBX: ffff88810a7b8000 RCX: 0000000000000001
+[  1337.424297] RDX: ffff888102345678 RSI: ffff88810a7b8a80 RDI: 0000000000000010
+[  1337.424303] RBP: ffffc90004d33da8 R8:  ffffffff81234567 R9:  0000000000000000
+[  1337.424309] R10: deadbeefdeadbeef R11: 0000000000000246 R12: ffff888107654321
+[  1337.424315] R13: ffff88810badc0de R14: ffff888100000000 R15: ffffffffc0ffee00
+[  1337.424321] FS:  00007f4d7b9f0740(0000) GS:ffff88846fdc0000(0000) knlGS:0000000000000000
+[  1337.424329] CR2: 0000000000000010 CR3: 000000010fedc000 CR4: 0000000000770ef0
+[  1337.424336] Call Trace:
+[  1337.424340]  <TASK>
+[  1337.424344]  commit_creds+0x4b/0x80
+[  1337.424349]  prepare_kernel_cred+0x19c/0x1f0
+[  1337.424354]  frostty_ioctl+0x12f/0x240 [frostty_vuln]
+[  1337.424360]  __x64_sys_ioctl+0x91/0xd0
+[  1337.424365]  do_syscall_64+0x60/0xe0
+[  1337.424370]  entry_SYSCALL_64_after_hwframe+0x6e/0x76
+[  1337.424376]  </TASK>
+[  1337.424381] Modules linked in: frostty_vuln(OE) nft_chain_nat xt_MASQUERADE
+[  1337.424387] KASAN: slab-out-of-bounds in copy_from_user+0x4e/0xb0
+[  1337.424393] Read of size 64 at addr ffff88810badc0de by task exploit-poc/4242
+[  1337.424399] The buggy address belongs to object at ffff88810badc000 which belongs to cache kmalloc-256
+[  1337.424406] Allocated by task 4210:
+[  1337.424410]  __kmalloc+0x1d2/0x360
+[  1337.424414]  vulnerable_alloc+0x55/0xb0 [frostty_vuln]
+[  1337.424419] Freed by task 4210:
+[  1337.424423]  kfree+0xe8/0x2f0
+[  1337.424427]  vulnerable_free+0x44/0x90 [frostty_vuln]
+[  1337.424433] sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+[  1337.424439] CVE-2026-4242 suspected exploit path from 10.10.14.3:4444 to 172.16.0.9:31337
+[  1337.424445] Kernel panic - not syncing: Fatal exception in interrupt

@@ -24,6 +24,24 @@ pub fn legacyDefaultXdgPath(alloc: Allocator) ![]const u8 {
     );
 }
 
+/// Frostty default configuration file.
+/// Returned value must be freed by the caller.
+pub fn frosttyConfigPath(alloc: Allocator) ![]const u8 {
+    return try internal_os.xdg.config(
+        alloc,
+        .{ .subdir = "frostty/config" },
+    );
+}
+
+/// Frostty optional pattern configuration file.
+/// Returned value must be freed by the caller.
+pub fn frosttyPatternsPath(alloc: Allocator) ![]const u8 {
+    return try internal_os.xdg.config(
+        alloc,
+        .{ .subdir = "frostty/patterns" },
+    );
+}
+
 /// Preferred default path for the XDG home configuration file.
 /// Returned value must be freed by the caller.
 pub fn preferredXdgPath(alloc: Allocator) ![]const u8 {

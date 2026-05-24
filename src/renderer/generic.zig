@@ -13,6 +13,7 @@ const math = @import("../math.zig");
 const Surface = @import("../Surface.zig");
 const link = @import("link.zig");
 const cellpkg = @import("cell.zig");
+const pattern_highlight = @import("pattern_highlight.zig");
 const noMinContrast = cellpkg.noMinContrast;
 const constraintWidth = cellpkg.constraintWidth;
 const isCovering = cellpkg.isCovering;
@@ -234,6 +235,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
         const HighlightTag = enum(u8) {
             search_match,
             search_match_selected,
+            pattern_highlight,
         };
         /// Swap chain which maintains multiple copies of the state needed to
         /// render a frame, so that we can start building the next frame while
@@ -554,6 +556,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             search_foreground: configpkg.Config.TerminalColor,
             search_selected_background: configpkg.Config.TerminalColor,
             search_selected_foreground: configpkg.Config.TerminalColor,
+            pattern_highlights: pattern_highlight.Set,
             bold_color: ?terminal.Style.BoldColor,
             faint_opacity: u8,
             min_contrast: f32,
@@ -599,10 +602,16 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 font_styles.set(.bold_italic, config.@"font-style-bold-italic" != .false);
 
                 // Our link configs
-                const links = try link.Set.fromConfig(
+                var links = try link.Set.fromConfig(
                     alloc,
                     config.link.links.items,
                 );
+                errdefer links.deinit(alloc);
+                var pattern_highlights = try pattern_highlight.Set.fromConfig(
+                    alloc,
+                    config.highlight.rules.items,
+                );
+                errdefer pattern_highlights.deinit(alloc);
 
                 return .{
                     .background_opacity = @max(0, @min(1, config.@"background-opacity")),
@@ -631,6 +640,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .search_foreground = config.@"search-foreground",
                     .search_selected_background = config.@"search-selected-background",
                     .search_selected_foreground = config.@"search-selected-foreground",
+                    .pattern_highlights = pattern_highlights,
 
                     .custom_shaders = custom_shaders,
                     .bg_image = bg_image,
@@ -650,6 +660,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             pub fn deinit(self: *DerivedConfig) void {
                 const alloc = self.arena.allocator();
+                self.pattern_highlights.deinit(alloc);
                 self.links.deinit(alloc);
                 self.arena.deinit();
             }
@@ -1325,6 +1336,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         log.warn("error updating search selected highlight err={}", .{err});
                     };
                 }
+
+                self.config.pattern_highlights.updateRenderState(
+                    self.alloc,
+                    &self.terminal_state,
+                    @intFromEnum(HighlightTag.pattern_highlight),
+                ) catch |err| {
+                    // Not a critical error, we just won't show pattern highlights.
+                    log.warn("error updating pattern highlights err={}", .{err});
+                };
 
                 if (self.search_matches) |m| {
                     self.terminal_state.updateHighlightsFlattened(
@@ -2748,13 +2768,13 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 else
                     .{};
 
-                // True if this cell is selected
-                const selected: enum {
+                const overlay: union(enum) {
                     false,
                     selection,
                     search,
                     search_selected,
-                } = selected: {
+                    pattern: terminal.RenderState.Highlight,
+                } = overlay: {
                     // Order below matters for precedence.
 
                     // Selection should take the highest precedence.
@@ -2764,25 +2784,23 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         x;
                     if (selection) |sel| {
                         if (x_compare >= sel[0] and
-                            x_compare <= sel[1]) break :selected .selection;
+                            x_compare <= sel[1]) break :overlay .selection;
                     }
 
-                    // If we're highlighted, then we're selected. In the
-                    // future we want to use a different style for this
-                    // but this to get started.
                     for (highlights.items) |hl| {
                         if (x_compare >= hl.range[0] and
                             x_compare <= hl.range[1])
                         {
                             const tag: HighlightTag = @enumFromInt(hl.tag);
-                            break :selected switch (tag) {
+                            break :overlay switch (tag) {
                                 .search_match => .search,
                                 .search_match_selected => .search_selected,
+                                .pattern_highlight => .{ .pattern = hl },
                             };
                         }
                     }
 
-                    break :selected .false;
+                    break :overlay .false;
                 };
 
                 // The `_style` suffixed values are the colors based on
@@ -2799,7 +2817,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                 });
 
                 // The final background color for the cell.
-                const bg = switch (selected) {
+                const normal_bg = if (style.flags.inverse != isCovering(cell.codepoint()))
+                    // Two cases cause us to invert (use the fg color as the bg)
+                    // - The "inverse" style flag.
+                    // - A "covering" glyph; we use fg for bg in that
+                    //   case to help make sure that padding extension
+                    //   works correctly.
+                    //
+                    // If one of these is true (but not the other)
+                    // then we use the fg style color for the bg.
+                    fg_style
+                else
+                    // Otherwise they cancel out.
+                    bg_style;
+
+                const bg = switch (overlay) {
                     // If we have an explicit selection background color
                     // specified in the config, use that.
                     //
@@ -2823,20 +2855,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                         .@"cell-background" => if (style.flags.inverse) fg_style else bg_style,
                     },
 
+                    .pattern => |hl| hl.bg orelse normal_bg,
+
                     // Not selected
-                    .false => if (style.flags.inverse != isCovering(cell.codepoint()))
-                        // Two cases cause us to invert (use the fg color as the bg)
-                        // - The "inverse" style flag.
-                        // - A "covering" glyph; we use fg for bg in that
-                        //   case to help make sure that padding extension
-                        //   works correctly.
-                        //
-                        // If one of these is true (but not the other)
-                        // then we use the fg style color for the bg.
-                        fg_style
-                    else
-                        // Otherwise they cancel out.
-                        bg_style,
+                    .false => normal_bg,
                 };
 
                 const fg = fg: {
@@ -2848,7 +2870,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     // - Cell is selected, inverted, and set to cell-foreground
                     // - Cell is selected, not inverted, and set to cell-background
                     // - Cell is inverted and not selected
-                    break :fg switch (selected) {
+                    const normal_fg = if (style.flags.inverse)
+                        final_bg
+                    else
+                        fg_style;
+
+                    break :fg switch (overlay) {
                         .selection => if (self.config.selection_foreground) |v| switch (v) {
                             .color => |color| color.toTerminalRGB(),
                             .@"cell-foreground" => if (style.flags.inverse) final_bg else fg_style,
@@ -2867,10 +2894,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                             .@"cell-background" => if (style.flags.inverse) fg_style else final_bg,
                         },
 
-                        .false => if (style.flags.inverse)
-                            final_bg
-                        else
-                            fg_style,
+                        .pattern => |hl| hl.fg orelse normal_fg,
+                        .false => normal_fg,
                     };
                 };
 
@@ -2888,8 +2913,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     const bg_alpha: u8 = bg_alpha: {
                         const default: u8 = 255;
 
-                        // Cells that are selected should be fully opaque.
-                        if (selected != .false) break :bg_alpha default;
+                        // Cells with overlay backgrounds should be fully opaque.
+                        switch (overlay) {
+                            .selection, .search, .search_selected => break :bg_alpha default,
+                            .pattern => |hl| if (hl.bg != null) break :bg_alpha default,
+                            .false => {},
+                        }
 
                         // Cells that are reversed should be fully opaque.
                         if (style.flags.inverse) break :bg_alpha default;
