@@ -1142,6 +1142,20 @@ palette: Palette = .{},
 ///     highlight = name=crash type=line regex="\b(SIGSEGV|SIGBUS|panic)\b" bg="#870000" fg="#ffffff" priority=90
 highlight: RepeatablePatternHighlight = .{},
 
+/// Foreground and background color for runtime highlights created with the
+/// `highlight_selection` action.
+///
+/// These colors are used only for in-memory rules added from the current
+/// terminal selection. Static `highlight` rules keep using their own `fg` and
+/// `bg` fields.
+///
+/// Example:
+///
+///     highlight-selection-foreground = #000000
+///     highlight-selection-background = #ffaf00
+@"highlight-selection-foreground": Color = .{ .r = 0x00, .g = 0x00, .b = 0x00 },
+@"highlight-selection-background": Color = .{ .r = 0xff, .g = 0xaf, .b = 0x00 },
+
 /// The command to run, usually a shell. If this is not an absolute path, it'll
 /// be looked up in the `PATH`. If this is not set, a default will be looked up
 /// from your system. The rules for the default lookup are:
@@ -8041,6 +8055,20 @@ pub const Keybinds = struct {
         // Should be in root set, not a table
         try testing.expectEqual(1, keybinds.set.bindings.count());
         try testing.expectEqual(0, keybinds.tables.count());
+    }
+
+    test "parseCLI highlight selection actions" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var keybinds: Keybinds = .{};
+
+        try keybinds.parseCLI(alloc, "ctrl+shift+h=highlight_selection");
+        try keybinds.parseCLI(alloc, "ctrl+shift+backspace=clear_runtime_highlights");
+
+        try testing.expectEqual(2, keybinds.set.bindings.count());
     }
 
     test "parseCLI shift+slash as key is not a table" {

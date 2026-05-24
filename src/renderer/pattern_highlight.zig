@@ -14,6 +14,7 @@ pub const Rule = struct {
     bg: ?terminal.color.RGB,
     priority: u16,
     order: u16,
+    runtime: bool = false,
 
     fn deinit(self: *Rule) void {
         self.regex.deinit();
@@ -52,6 +53,7 @@ pub const Set = struct {
                 .bg = if (rule.bg) |bg| bg.toTerminalRGB() else null,
                 .priority = rule.priority,
                 .order = @intCast(i),
+                .runtime = false,
             });
         }
 
@@ -61,6 +63,74 @@ pub const Set = struct {
     pub fn deinit(self: *Set, alloc: Allocator) void {
         for (self.rules) |*rule| rule.deinit();
         alloc.free(self.rules);
+    }
+
+    pub fn addRuntimeLiteral(
+        self: *Set,
+        alloc: Allocator,
+        literal: []const u8,
+        fg: terminal.color.RGB,
+        bg: terminal.color.RGB,
+    ) !void {
+        if (literal.len == 0) return;
+
+        const pattern = try escapeRegexLiteral(alloc, literal);
+        defer alloc.free(pattern);
+
+        var regex = try oni.Regex.init(
+            pattern,
+            .{},
+            oni.Encoding.utf8,
+            oni.Syntax.default,
+            null,
+        );
+        errdefer regex.deinit();
+
+        const rules = try alloc.alloc(Rule, self.rules.len + 1);
+        errdefer alloc.free(rules);
+        @memcpy(rules[0..self.rules.len], self.rules);
+
+        rules[self.rules.len] = .{
+            .kind = .token,
+            .regex = regex,
+            .fg = fg,
+            .bg = bg,
+            .priority = std.math.maxInt(u16),
+            .order = std.math.maxInt(u16) -| @as(u16, @intCast(@min(
+                self.rules.len,
+                std.math.maxInt(u16),
+            ))),
+            .runtime = true,
+        };
+
+        alloc.free(self.rules);
+        self.rules = rules;
+    }
+
+    pub fn clearRuntime(self: *Set, alloc: Allocator) !bool {
+        var keep_count: usize = 0;
+        for (self.rules) |rule| {
+            if (!rule.runtime) keep_count += 1;
+        }
+        if (keep_count == self.rules.len) return false;
+
+        const rules = try alloc.alloc(Rule, keep_count);
+        errdefer alloc.free(rules);
+
+        var i: usize = 0;
+        for (self.rules) |*rule| {
+            if (rule.runtime) {
+                rule.deinit();
+                continue;
+            }
+
+            rules[i] = rule.*;
+            i += 1;
+        }
+
+        alloc.free(self.rules);
+        self.rules = rules;
+        return true;
     }
 
     pub fn updateRenderState(
@@ -426,6 +496,23 @@ fn search(regex: *oni.Regex, bytes: []const u8) !oni.Region {
     );
 }
 
+fn escapeRegexLiteral(alloc: Allocator, literal: []const u8) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(alloc);
+
+    for (literal) |ch| {
+        switch (ch) {
+            '\\', '.', '^', '$', '|', '?', '*', '+', '(', ')', '[', ']', '{', '}' => {
+                try out.append(alloc, '\\');
+                try out.append(alloc, ch);
+            },
+            else => try out.append(alloc, ch),
+        }
+    }
+
+    return out.toOwnedSlice(alloc);
+}
+
 test "pattern highlights token and wide cell columns" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -555,4 +642,71 @@ test "pattern highlights token across soft-wrapped rows" {
     try testing.expectEqual(@as(terminal.size.CellCountInt, 19), row_highlights[2].items[0].range[1]);
     try testing.expectEqual(@as(terminal.size.CellCountInt, 0), row_highlights[3].items[0].range[0]);
     try testing.expectEqual(@as(terminal.size.CellCountInt, 10), row_highlights[3].items[0].range[1]);
+}
+
+test "pattern highlights runtime literal escapes regex syntax" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    try oni.testing.ensureInit();
+
+    var t: terminal.Terminal = try .init(alloc, .{
+        .cols = 24,
+        .rows = 1,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    s.nextSlice("0xffff[dead] 0xffffXdead");
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    var set = try Set.fromConfig(alloc, &.{});
+    defer set.deinit(alloc);
+    try set.addRuntimeLiteral(
+        alloc,
+        "0xffff[dead]",
+        .{ .r = 0x00, .g = 0x00, .b = 0x00 },
+        .{ .r = 0xff, .g = 0xaf, .b = 0x00 },
+    );
+
+    try set.updateRenderState(alloc, &state, 42);
+
+    const highlights = state.row_data.items(.highlights)[0].items;
+    try testing.expectEqual(@as(usize, 1), highlights.len);
+    try testing.expectEqual(@as(terminal.size.CellCountInt, 0), highlights[0].range[0]);
+    try testing.expectEqual(@as(terminal.size.CellCountInt, 11), highlights[0].range[1]);
+    try testing.expectEqual(terminal.color.RGB{ .r = 0xff, .g = 0xaf, .b = 0x00 }, highlights[0].bg.?);
+}
+
+test "pattern highlights clear runtime keeps config rules" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    try oni.testing.ensureInit();
+
+    var set = try Set.fromConfig(alloc, &.{
+        .{
+            .name = "config",
+            .kind = .token,
+            .regex = "CONFIG",
+            .priority = 10,
+        },
+    });
+    defer set.deinit(alloc);
+    try set.addRuntimeLiteral(
+        alloc,
+        "runtime",
+        .{ .r = 0x00, .g = 0x00, .b = 0x00 },
+        .{ .r = 0xff, .g = 0xaf, .b = 0x00 },
+    );
+
+    try testing.expectEqual(@as(usize, 2), set.rules.len);
+    try testing.expect(try set.clearRuntime(alloc));
+    try testing.expectEqual(@as(usize, 1), set.rules.len);
+    try testing.expect(!set.rules[0].runtime);
+    try testing.expect(!try set.clearRuntime(alloc));
 }

@@ -5153,6 +5153,35 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool 
             );
         },
 
+        .highlight_selection => {
+            const selection = try self.selectionString(self.alloc) orelse return false;
+            defer self.alloc.free(selection);
+
+            const literal = std.mem.trim(u8, selection, " \t\r\n");
+            if (literal.len == 0 or literal.len > 4096) return false;
+            if (std.mem.indexOfScalar(u8, literal, '\n') != null or
+                std.mem.indexOfScalar(u8, literal, '\r') != null) return false;
+
+            const owned = try self.alloc.dupe(u8, literal);
+            errdefer self.alloc.free(owned);
+
+            _ = self.renderer_thread.mailbox.push(.{
+                .pattern_highlight_add_literal = .{
+                    .alloc = self.alloc,
+                    .literal = owned,
+                },
+            }, .{ .forever = {} });
+            try self.queueRender();
+        },
+
+        .clear_runtime_highlights => {
+            _ = self.renderer_thread.mailbox.push(
+                .{ .pattern_highlight_clear_runtime = {} },
+                .{ .forever = {} },
+            );
+            try self.queueRender();
+        },
+
         .end_search => {
             // We only return that this was performed if we actually
             // stopped a search, but we also send the apprt end_search so

@@ -195,6 +195,18 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = "Start a search for the current text selection.",
         }},
 
+        .highlight_selection => comptime &.{.{
+            .action = .highlight_selection,
+            .title = "Highlight Selection",
+            .description = "Highlight all occurrences of the current text selection.",
+        }},
+
+        .clear_runtime_highlights => comptime &.{.{
+            .action = .clear_runtime_highlights,
+            .title = "Clear Runtime Highlights",
+            .description = "Clear highlights added at runtime.",
+        }},
+
         .end_search => comptime &.{.{
             .action = .end_search,
             .title = "End Search",

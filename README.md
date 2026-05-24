@@ -44,6 +44,53 @@ The renderer scans visible logical lines, including soft-wrapped rows. This
 means long IOCs such as SHA-256 values can still match when wrapped across
 multiple visual rows.
 
+### Runtime Value Tracking
+
+Frostty can promote the current terminal selection into a temporary highlight
+rule. This is meant for values discovered during live analysis: leaked pointers,
+heap chunk addresses, request IDs, PIDs, TIDs, nonces, hashes, kernel symbols,
+or any other value that becomes interesting while reading output.
+
+Bind the actions in `~/.config/frostty/config`:
+
+```conf
+keybind = ctrl+shift+h=highlight_selection
+keybind = ctrl+shift+backspace=clear_runtime_highlights
+
+highlight-selection-foreground = #000000
+highlight-selection-background = #ffaf00
+```
+
+Typical workflow:
+
+```text
+1. A leak appears in the terminal: 0xffff88810a7c9000
+2. Select the value.
+3. Trigger highlight_selection.
+4. Frostty highlights visible and future occurrences of that exact value.
+```
+
+`highlight_selection` creates an in-memory literal token rule. The selected text
+is escaped before compilation, so regex metacharacters are not interpreted:
+
+```text
+0xffff88810a7c9000
+chunk[0x5555558123a0]
+SHA256:abcd...==
+```
+
+Runtime highlights are not written to disk and do not modify the terminal
+buffer, scrollback, or copied text. Use `clear_runtime_highlights` to remove all
+runtime rules while keeping static rules from `config` and `patterns`.
+
+Current constraints:
+
+- selections are trimmed at the edges;
+- empty selections are ignored;
+- hard multiline selections are ignored;
+- selections larger than 4096 bytes are ignored;
+- runtime highlights use one global foreground/background style.
+
 ## Configuration
 
 Frostty reads:

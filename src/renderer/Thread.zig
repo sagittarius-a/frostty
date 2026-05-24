@@ -478,6 +478,15 @@ fn drainMailbox(self: *Thread) !void {
                 self.renderer.search_matches_dirty = true;
             },
 
+            .pattern_highlight_add_literal => |v| {
+                defer v.alloc.free(v.literal);
+                try self.renderer.addRuntimePatternHighlight(v.literal);
+            },
+
+            .pattern_highlight_clear_runtime => {
+                try self.renderer.clearRuntimePatternHighlights();
+            },
+
             .inspector => |v| {
                 self.flags.has_inspector = v;
             },

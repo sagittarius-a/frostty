@@ -419,6 +419,13 @@ pub const Action = union(enum) {
     /// changes the search terms.
     search_selection,
 
+    /// Highlight all visible and future occurrences of the current text
+    /// selection as a runtime literal pattern.
+    highlight_selection,
+
+    /// Clear all runtime highlights added by highlight_selection.
+    clear_runtime_highlights,
+
     /// Navigate the search results. If there is no active search, this
     /// is not performed.
     ///
@@ -1356,6 +1363,8 @@ pub const Action = union(enum) {
             .search,
             .navigate_search,
             .search_selection,
+            .highlight_selection,
+            .clear_runtime_highlights,
             .start_search,
             .end_search,
             .reset,

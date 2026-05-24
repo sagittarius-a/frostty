@@ -178,6 +178,12 @@ if [ ! -f "$CONFIG_FILE" ]; then
 # Frostty pattern highlights.
 # See frostty/HIGHLIGHTS.md in the repository for a larger rule catalog.
 
+keybind = ctrl+shift+h=highlight_selection
+keybind = ctrl+shift+backspace=clear_runtime_highlights
+
+highlight-selection-foreground = #000000
+highlight-selection-background = #ffaf00
+
 highlight = name=critical-line type=line regex="\b(CRITICAL|FATAL|PANIC|panic|SIGSEGV|segmentation fault|core dumped)\b" fg="#ffffff" bg="#7f1d1d" priority=1000
 highlight = name=error-line type=line regex="\b(ERROR|failed|denied|forbidden|unauthorized)\b" fg="#ffffff" bg="#4c1d1d" priority=900
 highlight = name=secret-line type=line regex="\b(secret|password|passwd|token|api[_-]?key|private[_-]?key|credential|bearer|authorization)\b" fg="#ffffff" bg="#6d1f4f" priority=980

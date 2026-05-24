@@ -94,6 +94,21 @@ mkdir -p ~/.config/frostty
 cp frostty/kernel-patterns ~/.config/frostty/patterns
 ```
 
+Runtime value tracking can be bound from the same config:
+
+```conf
+keybind = ctrl+shift+h=highlight_selection
+keybind = ctrl+shift+backspace=clear_runtime_highlights
+
+highlight-selection-foreground = #000000
+highlight-selection-background = #ffaf00
+```
+
+Select a leaked pointer, hash, PID, or request ID, then trigger
+`highlight_selection`. Frostty highlights exact future occurrences as a literal
+token, without treating the selection as regex. The two color options control
+the runtime highlight style.
+
 ## Examples
 
 Render the screenshot fixture:

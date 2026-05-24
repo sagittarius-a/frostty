@@ -29,6 +29,34 @@ highlight = name=<id> type=token|line regex="<oniguruma-regex>" fg="#RRGGBB" bg=
 
 Higher priority wins visually when rules overlap.
 
+## Runtime Tracking
+
+Bind runtime tracking actions in `~/.config/frostty/config`:
+
+```conf
+keybind = ctrl+shift+h=highlight_selection
+keybind = ctrl+shift+backspace=clear_runtime_highlights
+
+highlight-selection-foreground = #000000
+highlight-selection-background = #ffaf00
+```
+
+`highlight_selection` creates an in-memory literal token rule from the current
+selection. This is intended for volatile debugging values such as a single
+leaked pointer, heap chunk address, request ID, PID, TID, nonce, or hash.
+
+The selected value is escaped before compilation, so regex metacharacters are
+tracked literally:
+
+```text
+0xffff88810a7c9000
+chunk[0x5555558123a0]
+SHA256:abcd...==
+```
+
+Runtime highlights are not written to disk. Use `clear_runtime_highlights` to
+remove them without touching the static rules from `config` or `patterns`.
+
 ## Core Security Triage
 
 ```conf

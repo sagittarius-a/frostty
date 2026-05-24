@@ -557,6 +557,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
             search_selected_background: configpkg.Config.TerminalColor,
             search_selected_foreground: configpkg.Config.TerminalColor,
             pattern_highlights: pattern_highlight.Set,
+            highlight_selection_foreground: terminal.color.RGB,
+            highlight_selection_background: terminal.color.RGB,
             bold_color: ?terminal.Style.BoldColor,
             faint_opacity: u8,
             min_contrast: f32,
@@ -641,6 +643,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                     .search_selected_background = config.@"search-selected-background",
                     .search_selected_foreground = config.@"search-selected-foreground",
                     .pattern_highlights = pattern_highlights,
+                    .highlight_selection_foreground = config.@"highlight-selection-foreground".toTerminalRGB(),
+                    .highlight_selection_background = config.@"highlight-selection-background".toTerminalRGB(),
 
                     .custom_shaders = custom_shaders,
                     .bg_image = bg_image,
@@ -1932,6 +1936,32 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
 
             if (custom_shaders_changed) {
                 self.reinitialize_shaders = true;
+            }
+        }
+
+        pub fn addRuntimePatternHighlight(self: *Self, literal: []const u8) !void {
+            self.draw_mutex.lock();
+            defer self.draw_mutex.unlock();
+
+            try self.config.pattern_highlights.addRuntimeLiteral(
+                self.config.arena.allocator(),
+                literal,
+                self.config.highlight_selection_foreground,
+                self.config.highlight_selection_background,
+            );
+            self.search_matches_dirty = true;
+            self.markDirty();
+        }
+
+        pub fn clearRuntimePatternHighlights(self: *Self) !void {
+            self.draw_mutex.lock();
+            defer self.draw_mutex.unlock();
+
+            if (try self.config.pattern_highlights.clearRuntime(
+                self.config.arena.allocator(),
+            )) {
+                self.search_matches_dirty = true;
+                self.markDirty();
             }
         }
 

@@ -61,6 +61,12 @@ pub const Message = union(enum) {
     /// no match currently.
     search_selected_match: ?SearchMatch,
 
+    /// Add a runtime literal pattern highlight.
+    pattern_highlight_add_literal: RuntimePatternHighlight,
+
+    /// Clear all runtime pattern highlights.
+    pattern_highlight_clear_runtime,
+
     /// Activate or deactivate the inspector.
     inspector: bool,
 
@@ -75,6 +81,11 @@ pub const Message = union(enum) {
     pub const SearchMatch = struct {
         arena: ArenaAllocator,
         match: terminal.highlight.Flattened,
+    };
+
+    pub const RuntimePatternHighlight = struct {
+        alloc: Allocator,
+        literal: []const u8,
     };
 
     /// Initialize a change_config message.
@@ -104,6 +115,8 @@ pub const Message = union(enum) {
                 v.alloc.destroy(v.impl);
                 v.alloc.destroy(v.thread);
             },
+
+            .pattern_highlight_add_literal => |v| v.alloc.free(v.literal),
 
             else => {},
         }
