@@ -126,7 +126,7 @@ before falling back to Ghostty's normal user and bundled theme locations.
 Use the Frostty build wrapper:
 
 ```sh
-./frostty/build.sh --icon XrayImage
+./frostty/build-macos.sh --icon XrayImage
 ```
 
 By default, it is using an alternative icon so it is easy to distinguish Frostty
@@ -135,6 +135,21 @@ from Ghostty in Dock and application switcher.
 ![Switcher preview](frostty/task-switcher.png)
 
 Build and packaging details are documented in [frostty/README.md](frostty/README.md).
+The wrapper also has an experimental Linux path that builds the GTK binary into
+a local prefix and exposes it as `bin/frostty`:
+
+```sh
+./frostty/build-linux.sh
+```
+
+The Linux script uses local `zig 0.15.2` when available and otherwise retries
+inside the repo Nix dev shell.
+
+On Linux/GTK, set Frostty's application class so it can coexist with Ghostty:
+
+```conf
+class = com.mitchellh.ghostty.frostty
+```
 
 ## Limitations
 
@@ -146,25 +161,19 @@ The app is renamed and uses a distinct bundle identifier:
 ```text
 CFBundleName = Frostty
 CFBundleIdentifier = com.mitchellh.ghostty.frostty
-```
-
-However, the internal executable is still Ghostty's executable:
-
-```text
-CFBundleExecutable = ghostty
+CFBundleExecutable = frostty
 ```
 
 This is good enough for local vulnerability research workflows and keeps the
 hack small, but it is not a fully independent macOS product identity. Finder,
 Dock, and LaunchServices can distinguish Frostty from Ghostty, but System
 Settings permissions and TCC state may still behave inconsistently depending on
-signature, install path, executable name, and rebuild history.
+signature, install path, and rebuild history.
 
 The build script signs the app ad hoc and writes it to `/private/tmp` by
 default. Rebuilt copies may be treated by macOS as new local apps. A stronger
-separation would require renaming the internal executable, updating
-`CFBundleExecutable`, auditing Ghostty-specific runtime identifiers, and signing
-with a stable identity.
+separation would require auditing Ghostty-specific runtime identifiers and
+signing with a stable identity.
 
 ## Upstream
 

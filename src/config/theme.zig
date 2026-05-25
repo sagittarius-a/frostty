@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const global_state = &@import("../global.zig").state;
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
+const frosttypkg = @import("../frostty.zig");
 
 /// Location of possible themes. The order of this enum matters because it
 /// defines the priority of theme search (from top to bottom).
@@ -27,7 +28,7 @@ pub const Location = enum {
     ) error{OutOfMemory}!?[]const u8 {
         return switch (self) {
             .frostty_user => frostty: {
-                if (!isFrosttyRuntime(arena_alloc)) break :frostty null;
+                if (!(frosttypkg.isRuntime(arena_alloc) catch false)) break :frostty null;
 
                 const subdir = std.fs.path.join(arena_alloc, &.{
                     "frostty", "themes",
@@ -86,13 +87,6 @@ pub const Location = enum {
         };
     }
 };
-
-fn isFrosttyRuntime(alloc: Allocator) bool {
-    if (comptime builtin.os.tag != .macos) return false;
-
-    const exe_path = std.fs.selfExePathAlloc(alloc) catch return false;
-    return std.mem.indexOf(u8, exe_path, "/Frostty.app/") != null;
-}
 
 /// An iterator that returns all possible directories for finding themes in
 /// order of priority.

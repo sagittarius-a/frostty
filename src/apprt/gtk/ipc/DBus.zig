@@ -9,6 +9,7 @@ const glib = @import("glib");
 
 const apprt = @import("../../../apprt.zig");
 const ApprtApp = @import("../App.zig");
+const frosttypkg = @import("../../../frostty.zig");
 
 /// The target for this IPC.
 target: apprt.ipc.Target,
@@ -47,7 +48,10 @@ pub fn init(alloc: Allocator, target: apprt.ipc.Target, action: [:0]const u8) (A
 
             break :result .{ class, object_path };
         },
-        .detect => .{ ApprtApp.application_id, ApprtApp.object_path },
+        .detect => if (try frosttypkg.isRuntime(alloc))
+            .{ frosttypkg.gtk_application_id, frosttypkg.gtk_object_path }
+        else
+            .{ ApprtApp.application_id, ApprtApp.object_path },
     };
     errdefer {
         switch (target) {

@@ -15,6 +15,7 @@ const i18n = @import("../../../os/main.zig").i18n;
 const apprt = @import("../../../apprt.zig");
 const CoreApp = @import("../../../App.zig");
 const configpkg = @import("../../../config.zig");
+const frosttypkg = @import("../../../frostty.zig");
 const input = @import("../../../input.zig");
 const internal_os = @import("../../../os/main.zig");
 const systemd = @import("../../../os/systemd.zig");
@@ -331,7 +332,10 @@ pub const Application = extern struct {
                 }
             }
 
-            break :app_id build_info.application_id;
+            break :app_id if (try frosttypkg.isRuntime(alloc))
+                frosttypkg.gtk_application_id
+            else
+                build_info.application_id;
         };
 
         const display: *gdk.Display = gdk.Display.getDefault() orelse {

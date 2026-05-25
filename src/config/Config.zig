@@ -22,6 +22,7 @@ const fontpkg = @import("../font/main.zig");
 const inputpkg = @import("../input.zig");
 const internal_os = @import("../os/main.zig");
 const cli = @import("../cli.zig");
+const frosttypkg = @import("../frostty.zig");
 
 const conditional = @import("conditional.zig");
 const Conditional = conditional.Conditional;
@@ -4065,7 +4066,7 @@ pub fn loadDefaultFiles(self: *Config, alloc: Allocator) !void {
         return;
     }
 
-    if (try isFrosttyRuntime(alloc)) {
+    if (try frosttypkg.isRuntime(alloc)) {
         try self.loadFrosttyDefaultFiles(alloc);
         return;
     }
@@ -4169,18 +4170,6 @@ fn loadFrosttyFile(
     path: []const u8,
 ) OptionalFileAction {
     return self.loadOptionalFile(alloc, path);
-}
-
-fn isFrosttyRuntime(alloc: Allocator) !bool {
-    if (comptime builtin.os.tag != .macos) return false;
-
-    const exe_path = std.fs.selfExePathAlloc(alloc) catch |err| switch (err) {
-        error.OutOfMemory => return err,
-        else => return false,
-    };
-    defer alloc.free(exe_path);
-
-    return std.mem.indexOf(u8, exe_path, "/Frostty.app/") != null;
 }
 
 /// Load and parse the CLI args.

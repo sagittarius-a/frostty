@@ -1,0 +1,23 @@
+# Frostty pattern highlights.
+# See frostty/HIGHLIGHTS.md in the repository for a larger rule catalog.
+
+# Required on Linux/GTK so Frostty and Ghostty keep separate Wayland, DBus, and
+# Hyprland identities when both are installed.
+class = com.mitchellh.ghostty.frostty
+
+keybind = ctrl+shift+h=highlight_selection
+keybind = ctrl+shift+backspace=clear_runtime_highlights
+
+highlight-selection-foreground = #000000
+highlight-selection-background = #ffaf00
+
+highlight = name=critical-line type=line regex="\b(CRITICAL|FATAL|PANIC|panic|SIGSEGV|segmentation fault|core dumped)\b" fg="#ffffff" bg="#7f1d1d" priority=1000
+highlight = name=error-line type=line regex="\b(ERROR|failed|denied|forbidden|unauthorized)\b" fg="#ffffff" bg="#4c1d1d" priority=900
+highlight = name=secret-line type=line regex="\b(secret|password|passwd|token|api[_-]?key|private[_-]?key|credential|bearer|authorization)\b" fg="#ffffff" bg="#6d1f4f" priority=980
+highlight = name=cve type=token regex="\bCVE-[0-9]{4}-[0-9]{4,7}\b" fg="#ffdf5d" bg="#3d2d00" priority=950
+highlight = name=sha256 type=token regex="\b[A-Fa-f0-9]{64}\b" fg="#50fa7b" bg="#12351f" priority=900
+highlight = name=ipv4 type=token regex="\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b" fg="#8be9fd" bg="#073642" priority=700
+highlight = name=url type=token regex="\bhttps?://[^[:space:]\"'<>]+\b" fg="#8be9fd" bg="#073642" priority=800
+highlight = name=aws-access-key type=token regex="\b(?:AKIA|ASIA)[A-Z0-9]{16}\b" fg="#ff5555" bg="#3f1111" priority=1000
+highlight = name=github-token type=token regex="\bgh[pousr]_[A-Za-z0-9_]{36,255}\b" fg="#ff5555" bg="#3f1111" priority=1000
+highlight = name=jwt type=token regex="\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b" fg="#ff5555" bg="#3f1111" priority=1000
